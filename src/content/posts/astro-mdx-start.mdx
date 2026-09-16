@@ -1,41 +1,79 @@
 ---
-title: "Astro와 MDX로 블로그 글 시작하기"
-description: "콘텐츠 컬렉션, MDX, Tailwind CSS를 조합해 기술 블로그 글을 작성하는 기본 흐름을 확인합니다."
+title: "Next.js의 캐시는 어디에 존재하는가"
+description: "브라우저 캐시부터 Router Cache, Cache Components, CDN까지 Next.js App Router의 렌더링과 캐시 흐름을 따라가며 데이터 변경이 화면에 반영되는 과정을 살펴봅니다."
 date: 2026-09-16
+category: "Next.js"
 tags:
-  - Astro
-  - MDX
-  - Tailwind CSS
-isDraft: false
+  - Next.js
+  - App Router
+  - Cache
+  - React Server Components
 ---
 
-## MDX를 선택한 이유
+Next.js에서 데이터를 수정했는데도 화면에 이전 값이 보일 때가 있습니다. 이 현상을 이해하려면 “캐시가 있다”는 말만으로는 부족합니다. 어떤 캐시가, 어느 시점에, 무엇을 저장하고 있는지 구분해야 합니다.
 
-MDX를 사용하면 일반적인 마크다운 문법을 유지하면서도, 필요한 곳에 Astro 컴포넌트와 JSX 표현식을 사용할 수 있습니다.
+이 글은 브라우저 캐시에서 시작해 Next.js의 Router Cache, Cache Components, 그리고 CDN까지 한 요청이 통과하는 여러 캐시를 하나의 흐름으로 연결합니다. 이어서 데이터를 수정한 뒤 `updateTag`, `revalidateTag`, `router.refresh()`가 각각 어떤 사용자 경험을 보장하는지 작은 실험으로 확인합니다.
 
-> 글의 구조는 마크다운으로 단순하게 유지하고, 표현이 필요한 부분만 컴포넌트로 확장합니다.
+## 목차
 
-### 작성 원칙
+- [1. 캐시는 한 곳에 있지 않다](#1-캐시는-한-곳에-있지-않다)
+- [2. App Router는 화면을 어떻게 만드는가](#2-app-router는-화면을-어떻게-만드는가)
+- [3. 실험 환경과 목 데이터 서버](#3-실험-환경과-목-데이터-서버)
+- [4. 렌더링 방식에 따른 차이](#4-렌더링-방식에-따른-차이)
+- [5. 새로운 캐시 모델: `use cache`, `cacheLife`, `cacheTag`](#5-새로운-캐시-모델-use-cache-cachelife-cachetag)
+- [6. 데이터를 수정한 뒤 캐시를 무효화하는 방법](#6-데이터를-수정한-뒤-캐시를-무효화하는-방법)
+- [7. Router Cache와 `router.refresh()`](#7-router-cache와-routerrefresh)
+- [8. 브라우저에서 hydration과 화면 갱신](#8-브라우저에서-hydration과-화면-갱신)
+- [9. 실험 결과를 하나의 요청 흐름으로 정리하기](#9-실험-결과를-하나의-요청-흐름으로-정리하기)
 
-- 제목과 요약은 frontmatter에서 관리합니다.
-- 본문에서는 **핵심 문장**을 먼저 작성합니다.
-- 파일명은 URL이 되므로 `kebab-case`를 사용합니다.
-  - 하위 목록도 일반 마크다운 문법으로 작성할 수 있습니다.
-  - 인라인 코드는 `const post = await getEntry()`처럼 표현합니다.
+## 1. 캐시는 한 곳에 있지 않다
 
-<div class="content-box">
-  콘텐츠 컬렉션은 글의 메타데이터를 일관된 형태로 관리해 줍니다.
-</div>
+먼저 캐시를 저장 위치와 역할에 따라 나눠 봅니다. 브라우저 캐시, CDN, 서버의 Data Cache와 Full Route Cache, 클라이언트의 Router Cache는 서로 다른 시점에 동작합니다.
 
-## 코드 블록
+## 2. App Router는 화면을 어떻게 만드는가
 
-Astro는 이 코드 펜스를 Prism 토큰으로 변환하고, 글 전용 스타일시트가 색상과 여백을 적용합니다.
+Server Component와 Client Component가 맡는 일을 구분하고, 정적 렌더링과 동적 렌더링이 RSC Payload와 HTML을 어떻게 만드는지 살펴봅니다. Suspense와 Streaming이 이 과정에 어떤 변화를 주는지도 함께 다룹니다.
 
-```ts
-interface IPost {
-  title: string;
-  isDraft: boolean;
-}
+## 3. 실험 환경과 목 데이터 서버
 
-const isPublicPost = (post: IPost) => !post.isDraft;
+저장소보다 캐시의 흐름에 집중하기 위해 메모리 기반 목 데이터를 사용합니다.
+
+```text
+Next.js 화면
+  ↓
+Route Handler / Server Action
+  ↓
+메모리 기반 목 데이터
 ```
+
+실험 페이지는 다음 다섯 가지로 구성합니다.
+
+- `/lab/static` — 정적 렌더링과 캐시된 결과
+- `/lab/dynamic` — 요청마다 다시 읽는 동적 렌더링
+- `/lab/streaming` — Suspense와 Streaming으로 나뉘는 응답
+- `/lab/revalidate` — 태그 기반 무효화와 데이터 갱신
+- `/lab/router-cache` — 클라이언트 Router Cache와 새로고침
+
+## 4. 렌더링 방식에 따른 차이
+
+같은 데이터를 읽더라도 정적·동적 렌더링, 스트리밍 여부에 따라 서버 응답과 브라우저에 도착하는 시점이 달라집니다. 각 실험 페이지에서 “언제 실행됐는가”를 표시해 차이를 관찰합니다.
+
+## 5. 새로운 캐시 모델: `use cache`, `cacheLife`, `cacheTag`
+
+Next.js 16 계열의 `cacheComponents`를 기준으로 새로운 캐시 모델을 소개합니다. `use cache`로 캐시 단위를 만들고, `cacheLife`로 수명을 정의하며, `cacheTag`로 특정 데이터와 캐시를 연결하는 흐름을 정리합니다.
+
+## 6. 데이터를 수정한 뒤 캐시를 무효화하는 방법
+
+`revalidateTag`와 `updateTag`는 모두 태그를 사용하지만 보장하는 사용자 경험이 다릅니다. 데이터 변경 직후 사용자에게 최신 값을 보여줘야 하는지, 다음 요청부터 최신 값을 계산해도 되는지를 기준으로 두 API를 비교합니다.
+
+## 7. Router Cache와 `router.refresh()`
+
+서버에서 캐시를 무효화했더라도 브라우저의 Router Cache가 남아 있으면 화면은 그대로일 수 있습니다. `router.refresh()`가 현재 라우트의 RSC Payload를 다시 받아 화면을 갱신하는 과정을 확인합니다.
+
+## 8. 브라우저에서 hydration과 화면 갱신
+
+서버가 보낸 HTML과 RSC Payload를 브라우저가 어떻게 결합하는지, Client Component가 hydration된 뒤 어떤 경로로 다시 렌더링되는지 살펴봅니다. 최종적으로 “데이터 변경 → 서버 처리 → 캐시 무효화 → 새 RSC Payload → 화면 반영”의 순서를 연결합니다.
+
+## 9. 실험 결과를 하나의 요청 흐름으로 정리하기
+
+각 실험의 관찰 결과를 캐시 위치, 무효화 시점, 사용자에게 보이는 시점으로 나눠 표로 정리합니다. 마지막에는 어떤 캐시를 의심해야 하는지 판단할 수 있는 체크리스트를 남깁니다.
