@@ -8,8 +8,9 @@ interface IBaseLayoutProps {
   description?: string;
 }
 
-const SITE_NAME = "김영완 블로그";
-const SITE_DESCRIPTION = "김영완의 개발 기록과 생각을 공유하는 개인 블로그입니다.";
+const SITE_NAME = "김영완";
+const SITE_DESCRIPTION =
+  "더 나은 사용자 경험을 고민하고 개선하는데 관심이 많습니다. React, Next.js, TypeScript를 활용한 프론트엔드 개발과 UX 개선, 성능 최적화에 대한 생각을 공유합니다.";
 const props = Astro.props as IBaseLayoutProps;
 const pageTitle = props.title === SITE_NAME ? props.title : `${props.title} | ${SITE_NAME}`;
 ---
@@ -23,6 +24,11 @@ const pageTitle = props.title === SITE_NAME ? props.title : `${props.title} | ${
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={props.description ?? SITE_DESCRIPTION} />
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={props.description ?? SITE_DESCRIPTION} />
+    <meta property="og:url" content={Astro.url.toString()} />
+    <link rel="canonical" href={Astro.url} />
     <title>{pageTitle}</title>
   </head>
   <body>
