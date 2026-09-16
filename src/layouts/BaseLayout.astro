@@ -1,0 +1,37 @@
+---
+import "../styles/global.css";
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+
+interface IBaseLayoutProps {
+  title: string;
+  description?: string;
+}
+
+const SITE_NAME = "김영완 블로그";
+const SITE_DESCRIPTION = "김영완의 개발 기록과 생각을 공유하는 개인 블로그입니다.";
+const props = Astro.props as IBaseLayoutProps;
+const pageTitle = props.title === SITE_NAME ? props.title : `${props.title} | ${SITE_NAME}`;
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={props.description ?? SITE_DESCRIPTION} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <div class="site-container">
+      <Header />
+      <div class="py-6">
+        <slot />
+      </div>
+      <Footer />
+    </div>
+  </body>
+</html>
